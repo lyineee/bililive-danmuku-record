@@ -27,6 +27,7 @@ class DanmakuGene(object):
 
     def get_video_info(self, path='./video', bias=0):
         l = os.listdir(path)
+        l.remove('.gitignore')
         l.sort(key=lambda x: int(os.path.splitext(x)[0]))
         time_list = [(0, bias)]
         for i in l:
@@ -38,21 +39,17 @@ class DanmakuGene(object):
 
     def get_danmaku_by_time(self, start_time, end_time):
         '''
-        start_time and end_time unit is minisecond
+        start_time and end_time unit is millisecond
         '''
         # sort row data
         self.danmaku_data_sorted = sorted(
             self.danmaku_data_raw, key=lambda x: x['timestamp'])
         # select
-        start_index = None
-        end_index = None
-        for index, i in enumerate(self.danmaku_data_sorted):
-            if (i['timestamp']-self.live_start_time > start_time) and (start_index is None):
-                start_index = index
-            if (i['timestamp']-self.live_start_time > end_time) and (end_index is None):
-                end_index = index
-
-        self.result_list = self.danmaku_data_sorted[start_index:end_index+1]
+        sel_list=[]
+        for index, i in enumerate(self.danmaku_data_raw):
+            if (i['timestamp']-self.live_start_time > start_time) and (i['timestamp']-self.live_start_time < end_time):
+                sel_list.append(i)
+        self.result_list = sorted(sel_list, key=lambda x: x['timestamp'])
         return self.result_list
 
     def gene_xml(self, result_path, danmaku_data, clip_start_time=0):
@@ -93,5 +90,5 @@ if __name__ == "__main__":
         bias_time = 10000
     if not bias_time:
         bias_time = 0
-    test = DanmakuGene('./danmaku/1586016056.txt')
+    test = DanmakuGene('./danmaku/1589110420.txt')
     test.test(bias_time,have_video=True)
