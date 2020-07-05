@@ -11,14 +11,18 @@ import requests as rq
 
 import blivedm
 
+# TODO maybe add bark notification when exception occor?
 room_id = 92613
 
 # log config
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
-logging.basicConfig(filename='my.log', level=logging.INFO,
+logging.basicConfig(filename='bili_danmaku.log', level=logging.INFO,
                     format=LOG_FORMAT, datefmt=DATE_FORMAT)
-
+# output to stdout
+log = logging.getLogger()
+stdout_handler = logging.StreamHandler(sys.stdout)
+log.addHandler(stdout_handler)
 
 class MyBLiveClient(blivedm.BLiveClient):
     def __init__(self, room, live_start_time, **kw):
@@ -31,11 +35,11 @@ class MyBLiveClient(blivedm.BLiveClient):
         logging.debug(
             f'{danmaku.uname}：{danmaku.msg} time:{danmaku.timestamp}')
         data = {'uid': danmaku.uid, 'uname': danmaku.uname, 'font_size': danmaku.font_size, 'color': danmaku.color,
-                'msg': danmaku.msg, 'timestamp': danmaku.timestamp, 'danmaku.msg_type': danmaku.msg_type}
+                'msg': danmaku.msg, 'timestamp': danmaku.timestamp, 'msg_type': danmaku.msg_type,'mode':danmaku.mode,'bubble':danmaku.bubble}
         try:
             self.d_file.writelines(json.dumps(data)+'\n')
             self.d_file.flush()
-            # uid 用户名 字体大小 颜色 内容 时间戳 是否为礼物（节奏风暴）
+            # uid 用户名 字体大小 颜色 内容 时间戳 是否为礼物（0:用户弹幕;1:礼物弹幕;2:主播礼物弹幕，抽奖）弹幕类型 超话？
         except:
             logging.error(traceback.format_exc())
 
@@ -43,7 +47,7 @@ class MyBLiveClient(blivedm.BLiveClient):
 def wait_live_end(client_future):
     while True:
         time_s = time.time()
-        time.sleep(5)
+        time.sleep(10)
         try:
             resp = rq.get(
                 'https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id={}'.format(room_id))
@@ -61,7 +65,7 @@ async def main():
     resp = rq.get(
         'https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id={}'.format(room_id))
     live_start_time = resp.json()['data']['room_info']['live_start_time']
-    logging.info('live start at {}'.format(
+    logging.info('live start on {}'.format(
         time.asctime(time.localtime(live_start_time))))
     client = MyBLiveClient(room_id, ssl=True, live_start_time=live_start_time)
     # 如果SSL验证失败就把ssl设为False
@@ -73,7 +77,7 @@ async def main():
     finally:
         client.d_file.close()
         await client.close()
-    logging.info('live end at {}'.format(time.asctime()))
+    logging.info('live end on {}'.format(time.asctime()))
 
 if __name__ == "__main__":
     args = sys.argv[1:]
