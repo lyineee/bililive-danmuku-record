@@ -34,6 +34,11 @@ class MyBLiveClient(blivedm.BLiveClient):
         super().__init__(room, ssl=True)
         self.d_file = open("./danmaku/{}.txt".format(live_start_time), "a")
 
+        # write the info line (first line)
+        live_info = {"live_start_time": live_start_time}
+        self.d_file.writelines(json.dumps(live_info) + "\n")
+        self.d_file.flush()
+
     _COMMAND_HANDLERS = blivedm.BLiveClient._COMMAND_HANDLERS.copy()
 
     async def _on_receive_danmaku(self, danmaku: blivedm.DanmakuMessage):
