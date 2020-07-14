@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -12,7 +13,7 @@ import requests as rq
 import blivedm
 
 # TODO maybe add bark notification when exception occor?
-room_id = 92613
+room_id_defalut = 92613
 
 # log config
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -107,9 +108,16 @@ async def main():
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    if len(args) != 0:
-        room_id = args[0]
+    env_val = os.getenv("ROOMID", "92613")
+    try:
+        room_id = int(env_val)
+    except ValueError:
+        log.fatal(
+            "ROOMID error, please reset this envirment.get ROOMID: {}".format(env_val)
+        )
+    if room_id == room_id_defalut:
+        log.warning("Your are using the default room id: {}".format(room_id_defalut))
+    log.info("start record, record room id is {}".format(room_id))
     while True:
         time_s = time.time()
         time.sleep(5)
