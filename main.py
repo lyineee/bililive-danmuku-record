@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import traceback
+from logging.handlers import TimedRotatingFileHandler
 
 import requests as rq
 
@@ -14,20 +15,39 @@ import blivedm
 
 # TODO maybe add bark notification when exception occor?
 room_id_defalut = 92613
+log_level_default = logging.INFO
 
-# log config
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
-logging.basicConfig(
-    filename="bili_danmaku.log",
-    level=logging.INFO,
-    format=LOG_FORMAT,
-    datefmt=DATE_FORMAT,
-)
-# output to stdout
-log = logging.getLogger()
-stdout_handler = logging.StreamHandler(sys.stdout)
-log.addHandler(stdout_handler)
+
+def log_config(log_level):
+    logger = logging.getLogger()
+    LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+    DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
+    formatter = logging.Formatter(LOG_FORMAT, DATE_FORMAT)
+    # output to file
+    fhlr = TimedRotatingFileHandler(filename="danmaku_record", when="W0", backupCount=4)
+    fhlr.setFormatter(formatter)
+    logger.addHandler(fhlr)
+
+    # output to stdout
+    chlr = logging.StreamHandler(sys.stdout)
+    chlr.setFormatter(formatter)
+    logger.addHandler(chlr)
+
+    try:
+        logger.setLevel(log_level)
+    except ValueError or TypeError:
+        logging.warn(
+            "Wrong LOGLEVEL envirment, log level set to default: {}".format(
+                log_level_default
+            )
+        )
+        logger.setLevel(log_level_default)
+
+    logging.info("Log level: {}".format(logging._levelToName[logger.level]))
+
+
+env_loglevel = os.getenv("LOGLEVEL", log_level_default)
+log_config(env_loglevel)
 
 
 class MyBLiveClient(blivedm.BLiveClient):
@@ -75,7 +95,7 @@ def wait_live_end(client_future):
             )
             status = resp.json()["data"]["room_info"]["live_status"]
             logging.debug(
-                "room status is:{} use time:{}".format(status, time.time() - time_s)
+                "room status is:{}, interval:{}".format(status, time.time() - time_s)
             )
             if status == 0:
                 client_future.cancel()
@@ -108,16 +128,21 @@ async def main():
 
 
 if __name__ == "__main__":
-    env_val = os.getenv("ROOMID", "92613")
+    env_roomid = os.getenv("ROOMID", "92613")
     try:
-        room_id = int(env_val)
+        room_id = int(env_roomid)
     except ValueError:
-        log.fatal(
-            "ROOMID error, please reset this envirment.get ROOMID: {}".format(env_val)
+        logging.fatal(
+            "ROOMID error, please reset this envirment.get ROOMID: {}".format(
+                env_roomid
+            )
         )
     if room_id == room_id_defalut:
-        log.warning("Your are using the default room id: {}".format(room_id_defalut))
-    log.info("start record, record room id is {}".format(room_id))
+        logging.warning(
+            "Your are using the default room id: {}".format(room_id_defalut)
+        )
+    logging.info("start record, record room id is {}".format(room_id))
+
     while True:
         time_s = time.time()
         time.sleep(5)
