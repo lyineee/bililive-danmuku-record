@@ -1,0 +1,12 @@
+version: "3"
+services: 
+    danmakuRecord:
+        image: lyine/bililive-danmuku-record:latest
+        volumes:
+            - /www/danmaku/danmaku_row:/usr/src/app/danmaku # archive danmaku dir
+            - ./log:/usr/src/app/log # log dir
+        environment: 
+            - ROOM_ID=92613
+            - LOG_LEVEL=ERROR
+            - LOG_PATH=./log
+            - DSN=https://your_dsn_url
