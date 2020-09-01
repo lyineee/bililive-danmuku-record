@@ -20,6 +20,7 @@ room_id_defalut = 92613
 log_level_default = logging.INFO
 log_path_default = "./log"
 tmp_dir = "./"
+proxy_url = None
 
 logger = logging.getLogger(__name__)
 sentry_logger = logging.getLogger("sentry")
@@ -62,13 +63,15 @@ def log_config(log_level, log_path, dsn=None):
             level=logging.INFO,  # Capture info and above as breadcrumbs
             event_level=logging.ERROR,  # Send errors as events
         )
+        logger.info("Try to connect to dsn server: {}".format(dsn))
         sentry_sdk.init(
             dsn=dsn,
             integrations=[sentry_logging_handler],
             max_breadcrumbs=30,
             before_send=strip_sensitive_data,
         )
-
+    else:
+        logger.warn("Not provide dsn url, will not use it.")
     try:
         logger.setLevel(log_level)
     except ValueError or TypeError:
@@ -214,7 +217,9 @@ if __name__ == "__main__":
             )
             status = resp.json()["data"]["room_info"]["live_status"]
             logger.debug(
-                "room status resp is:{} use time:{}".format(resp.json(), time.time() - time_s)
+                "room status resp is:{} use time:{}".format(
+                    resp.json(), time.time() - time_s
+                )
             )
             if status == 1:
                 live_start_time = resp.json()["data"]["room_info"]["live_start_time"]
@@ -226,6 +231,13 @@ if __name__ == "__main__":
                 ),
             )
             time.sleep(10)
+        except json.decoder.JSONDecodeError as e:
+            logger.info(
+                "Fail to get the room ({}) status, will try soon, detail {}".format(
+                    room_id, e
+                ),
+            )
+            logger.info("Respond content is {}".format(resp.content))
         except Exception as e:
             logger.error(
                 "Unknown error {} occur, detail: \n{}".format(
