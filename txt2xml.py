@@ -4,7 +4,8 @@ import os
 import cv2
 import sys
 import requests as rq
-
+from zipfile import ZipFile
+import uuid
 
 class DanmakuGene(object):
     danmaku_data_raw = None
@@ -24,9 +25,10 @@ class DanmakuGene(object):
         with open(path, "r") as f:
             try:  # for compatibility to older danmaku file
                 self.live_start_time = int(file_name.split(".")[0] + "000")
+                f.readline()  # skip first line
             except ValueError:
                 info = json.loads(f.readline())
-                self.live_start_time = info["live_start_time"]*1000
+                self.live_start_time = info["live_start_time"] * 1000
             for i in f:
                 self.danmaku_data_raw.append(json.loads(i))
 
@@ -95,7 +97,7 @@ class DanmakuGene(object):
             ) / 1000
             attr = [
                 appear_time,
-                1,  # 滚动弹幕类型为 1
+                node_data["mode"],  # 弹幕类型：滚动，底部
                 node_data["font_size"],
                 node_data["color"],
                 node_data["timestamp"],
@@ -122,26 +124,48 @@ class DanmakuGene(object):
             self.gene_xml("./{}.xml".format(index), self.get_danmaku_by_time(*i), i[0])
 
 
-def proc_bvid(danmaku_file_path, bvid, output_path='./',bias=0):
+# def proc_bvid(danmaku_file_path, bvid, output_path="./", bias=0):
+#     gen_obj = DanmakuGene(danmaku_file_path)
+#     video_info = gen_obj.get_video_info_from_web(bvid)
+#     sorted_info = sorted(video_info, key=lambda x: x["page"])
+#     for ep in sorted_info:
+#         ep["duration"] = ep["duration"] * 1000
+#     time_ptr = bias
+#     for episode in sorted_info:
+#         danmaku_list = gen_obj.get_danmaku_by_time(
+#             time_ptr, time_ptr + episode["duration"]
+#         )
+#         gen_obj.gene_xml(
+#             "./{}-{}-{}.xml".format(bvid, episode["page"], episode["part"]),
+#             danmaku_list,
+#             time_ptr,
+#         )
+#         time_ptr += episode["duration"]
+
+def proc_bvid(danmaku_file_path, bvid, output_path="./", bias=0):
     gen_obj = DanmakuGene(danmaku_file_path)
     video_info = gen_obj.get_video_info_from_web(bvid)
     sorted_info = sorted(video_info, key=lambda x: x["page"])
     for ep in sorted_info:
-        ep['duration']=ep['duration']*1000
+        ep["duration"] = ep["duration"] * 1000
     time_ptr = bias
-    for episode in sorted_info:
-        danmaku_list = gen_obj.get_danmaku_by_time(
-            time_ptr, time_ptr + episode["duration"]
-        )
-        gen_obj.gene_xml(
-            "./{}-{}-{}.xml".format(bvid, episode["page"], episode["part"]),
-            danmaku_list,
-        )
-        time_ptr += episode["duration"]
+    archive_file_name = uuid.uuid1().hex
+    with ZipFile("{}/{}".format(output_path, archive_file_name), "w") as f:
+        for episode in sorted_info:
+            danmaku_list = gen_obj.get_danmaku_by_time(
+                time_ptr, time_ptr + episode["duration"]
+            )
+            file_name = "./{}-{}-{}.xml".format(bvid, episode["page"], episode["part"])
+            gen_obj.gene_xml(file_name, danmaku_list, time_ptr)
+            time_ptr += episode["duration"]
+            f.write(file_name)
+            os.remove(file_name)
+    return archive_file_name
 
 
 def test():
-    proc_bvid("./test/2020-05-10T19-33.txt", "BV1FK4y1t7De",'./test')
+    hex = proc_bvid("./test/1605680870.json", "BV1Gz4y1y7wn", "./test")
+    print(hex)
 
 
 if __name__ == "__main__":

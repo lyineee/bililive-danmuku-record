@@ -5,10 +5,11 @@ import logging
 import os
 import shutil
 import sys
-import threading
+
 import time
 import traceback
 from logging.handlers import TimedRotatingFileHandler
+from typing import Union
 
 import requests as rq
 import sentry_sdk
@@ -32,6 +33,18 @@ def strip_sensitive_data(event, hint):
 
 
 def log_config(log_level, log_path, dsn=None):
+    try:  # Setting log level
+        logger.setLevel(log_level)
+    except ValueError or TypeError:
+        logger.warning(
+            "Wrong LOGLEVEL envirment, log level set to default: {}".format(
+                log_level_default
+            )
+        )
+        logger.setLevel(log_level_default)
+
+    logger.info("Log level: {}".format(logging._levelToName[logger.level]))
+
     LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
     DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
     formatter = logging.Formatter(LOG_FORMAT, DATE_FORMAT)
@@ -71,18 +84,7 @@ def log_config(log_level, log_path, dsn=None):
             before_send=strip_sensitive_data,
         )
     else:
-        logger.warn("Not provide dsn url, will not use it.")
-    try:
-        logger.setLevel(log_level)
-    except ValueError or TypeError:
-        logger.warning(
-            "Wrong LOGLEVEL envirment, log level set to default: {}".format(
-                log_level_default
-            )
-        )
-        logger.setLevel(log_level_default)
-
-    logger.info("Log level: {}".format(logging._levelToName[logger.level]))
+        logger.warning("Not provide dsn url, will not use it.")
 
 
 class MyBLiveClient(blivedm.BLiveClient):
@@ -124,10 +126,14 @@ class MyBLiveClient(blivedm.BLiveClient):
             sentry_logger.exception("Network error", extra=e)
 
 
-def wait_live_end(client_future):
+async def wait_live_end():
+    """
+    @description: Wait until live end
+    """
+
     while True:
         time_s = time.time()
-        time.sleep(10)
+        await asyncio.sleep(10)
         try:
             resp = rq.get(
                 "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id={}".format(
@@ -139,15 +145,15 @@ def wait_live_end(client_future):
                 "room status is:{}, interval:{}".format(status, time.time() - time_s)
             )
             if status == 0:
-                transfer_tmp_file()
-                client_future.cancel()
+                transfer_tmp_file() # copy file there in case file overwrite
+                break
         except TypeError as e:
-            logger.info(
-                "Fail to get the room ({}) status, will try soon, detail {}".format(
+            logger.debug(
+                "Fail to get the room ({}) status in wait_live_end, will try soon, detail {}".format(
                     room_id, e
                 ),
             )
-            time.sleep(10)
+            await asyncio.sleep(10)
 
         except Exception as e:
             logger.error(
@@ -156,7 +162,7 @@ def wait_live_end(client_future):
                 )
             )
             sentry_logger.exception("Error when getting room info", extra=e)
-            time.sleep(10)
+            await asyncio.sleep(10)
 
 
 def transfer_tmp_file():
@@ -165,6 +171,9 @@ def transfer_tmp_file():
             prefix = os.path.splitext(file_name)[0].split("-")[0]
             if prefix == "tmp":
                 name = os.path.splitext(file_name)[0].split("-")[-1]
+                logger.info(
+                    "Copying tmp file {} to row danmaku folder".format(file_name)
+                )
                 shutil.copy(tmp_dir + file_name, "./danmaku/" + name + ".json")
                 os.remove(tmp_dir + file_name)
 
@@ -175,15 +184,33 @@ async def main_loop(live_start_time):
     )
     client = MyBLiveClient(room_id, ssl=True, live_start_time=live_start_time)
     # 如果SSL验证失败就把ssl设为False
-    future = client.start()
-    t1 = threading.Thread(target=wait_live_end, args=(future,))
+    client.start()
     try:
-        t1.start()
-        await future
+        await wait_live_end()
     finally:
         client.d_file.close()
         await client.close()
+        # transfer_tmp_file()
     logger.info("live end on {}".format(time.asctime()))
+
+
+def send_notif_bark(bark_token):
+    if bark_token is not None:
+        title = "ZBL"
+        url = "https://live.bilibili.com/92613"
+        try:
+            logger.info("Sending notification to bark {}".format(bark_token))
+            rq.get("https://api.day.app/{}/{}?url={}".format(bark_token, title, url))
+        except Exception as e:
+            logger.error(
+                "Error when sending notificaiton to bark, detail: {}".format(e)
+            )
+            pass
+
+
+def log_format(key: str, value: Union[str, int, float, None]):
+    trim_value = str(value)[:25]
+    return str(key).ljust(15, " ") + trim_value.rjust(25, " ")
 
 
 if __name__ == "__main__":
@@ -192,12 +219,22 @@ if __name__ == "__main__":
     env_log_level = os.getenv("LOG_LEVEL", log_level_default)
     env_dsn = os.getenv("DSN", None)
     env_roomid = os.getenv("ROOMID", room_id_defalut)
+    env_bark_token = os.getenv("BARK_TOKEN")
     log_config(env_log_level, env_log_path, env_dsn)
+    room_id = room_id_defalut
+
+    logger.info("------------- Run argument -------------")
+    logger.info(log_format("Room id:", room_id))
+    logger.info(log_format("Log level:", env_log_level))
+    logger.info(log_format("Log path:", env_log_path))
+    logger.info(log_format("Bark token:", env_bark_token))
+    logger.info(log_format("DSN:", env_dsn))
+    logger.info("------------- End argument -------------")
 
     try:
         room_id = int(env_roomid)
     except ValueError:
-        logger.fatal(
+        logger.error(
             "ROOMID error, please reset this envirment.get ROOMID: {}".format(
                 env_roomid
             )
@@ -223,26 +260,28 @@ if __name__ == "__main__":
             )
             if status == 1:
                 live_start_time = resp.json()["data"]["room_info"]["live_start_time"]
+                send_notif_bark(env_bark_token)
                 asyncio.get_event_loop().run_until_complete(main_loop(live_start_time))
+                time.sleep(20)  # Maybe would not return None after live end
         except TypeError as e:
-            logger.info(
+            logger.debug(
                 "Fail to get the room ({}) status, will try soon, detail {}".format(
                     room_id, e
                 ),
             )
             time.sleep(10)
         except json.decoder.JSONDecodeError as e:
-            logger.info(
+            logger.debug(
                 "Fail to get the room ({}) status, will try soon, detail {}".format(
                     room_id, e
                 ),
             )
-            logger.info("Respond content is {}".format(resp.content))
+            logger.debug("Respond content is {}".format(resp.content))
         except Exception as e:
             logger.error(
                 "Unknown error {} occur, detail: \n{}".format(
                     e, traceback.format_exc(limit=2)
                 )
             )
-            sentry_logger.exception("Error when getting room info", extra=e)
+            # sentry_logger.exception("Error when getting room info", extra=e)
             time.sleep(10)
